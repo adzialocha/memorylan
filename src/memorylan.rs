@@ -83,7 +83,7 @@ where
     }
 
     pub fn build(self, my_id: ID) -> MemoryLan<ID, M> {
-        MemoryLan::new(
+        MemoryLan::from_args(
             my_id,
             self.cache_size,
             self.history_size,
@@ -106,13 +106,26 @@ where
     ID: Copy + Eq + Hash,
     M: Clone + Eq + Hash,
 {
-    fn new(my_id: ID, cache_size: usize, history_size: usize, filter_capacity: usize) -> Self {
+    pub fn new(my_id: ID) -> Self {
+        MemoryLanBuilder::default().build(my_id)
+    }
+
+    pub fn builder() -> MemoryLanBuilder<ID, M> {
+        MemoryLanBuilder::new()
+    }
+
+    fn from_args(
+        my_id: ID,
+        cache_size: usize,
+        history_size: usize,
+        filter_capacity: usize,
+    ) -> Self {
         Self {
             my_id,
             cache: RingSet::new(cache_size, RingSetMode::HotToTop),
             history: RingSet::new(history_size, RingSetMode::Regular),
             filter: Self::filter_builder(filter_capacity).build(),
-            neighbors: HashSet::with_capacity(8),
+            neighbors: HashSet::with_capacity(16),
         }
     }
 
@@ -122,10 +135,6 @@ where
             .with_bucket_size(4)
             .with_max_evictions(32)
             .with_fingerprint_bits(20)
-    }
-
-    pub fn builder() -> MemoryLanBuilder<ID, M> {
-        MemoryLanBuilder::new()
     }
 
     pub fn clear(&mut self) {
@@ -240,14 +249,14 @@ mod tests {
 
     #[test]
     fn fast_push_broadcast() {
-        let mut lan_1 = MemoryLan::<_, &'static str>::builder().build("node-1");
+        let mut lan_1 = MemoryLan::new("node-1");
 
         let outgoing_1 = lan_1.add("Hello, is anybody listening?");
         assert_eq!(outgoing_1.updates.len(), 1);
         assert_eq!(outgoing_1.broadcast.len(), 1);
         assert_eq!(lan_1.len(), 1);
 
-        let mut lan_2 = MemoryLan::<_, &'static str>::builder().build("node-2");
+        let mut lan_2 = MemoryLan::new("node-2");
 
         let outgoing_2 = lan_2.incoming(outgoing_1.broadcast[0].clone()).unwrap();
         assert_eq!(outgoing_2.updates.len(), 1);
@@ -257,7 +266,7 @@ mod tests {
 
     #[test]
     fn filter_duplicates() {
-        let mut lan = MemoryLan::<_, &'static str>::builder().build("test");
+        let mut lan = MemoryLan::new("test");
 
         let outgoing = lan.add("Yet again and again and again");
         assert_eq!(outgoing.updates.len(), 1);
@@ -272,7 +281,7 @@ mod tests {
 
     #[test]
     fn slow_repair() {
-        let mut lan_1 = MemoryLan::<_, &'static str>::builder().build("node-1");
+        let mut lan_1 = MemoryLan::new("node-1");
 
         // 1 broadcasts first message (not received by 2).
         let outgoing_1 = lan_1.add("tick");
@@ -284,7 +293,7 @@ mod tests {
         assert_eq!(outgoing_1.updates.len(), 0);
         assert_eq!(outgoing_1.broadcast.len(), 1);
 
-        let mut lan_2 = MemoryLan::<_, &'static str>::builder().build("node-2");
+        let mut lan_2 = MemoryLan::new("node-2");
 
         // 2 broadcasts two messages (not received by 1).
         lan_2.add("trick");
