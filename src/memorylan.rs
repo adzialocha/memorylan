@@ -186,6 +186,10 @@ where
         }
         self.neighbors.insert(id);
 
+        if self.ignore_request() {
+            return Ok(Outgoing::default());
+        }
+
         let remote_filter =
             Self::filter_builder(self.filter.capacity()).build_from_bitfield(bitfield)?;
 
@@ -196,10 +200,6 @@ where
             if !remote_filter.contains(&hash) {
                 broadcast.push(memory_page.clone().into());
             }
-        }
-
-        if self.ignore_request() {
-            return Ok(Outgoing::default());
         }
 
         Ok(Outgoing {
