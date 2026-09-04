@@ -130,7 +130,12 @@ impl<'a> BitUnpacker<'a> {
 const BUCKET_PREFIX_LEN: u32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Bitfield(Vec<u8>);
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
+pub struct Bitfield(#[cfg_attr(feature = "serde", serde(with = "serde_bytes"))] Vec<u8>);
 
 impl Bitfield {
     pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
@@ -395,5 +400,14 @@ mod tests {
                 .to_buckets(1, 4, 4)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn serde() {
+        let bitfield = Bitfield(vec![0b011_1100, 0b0011_1010]);
+        let bytes = postcard::to_allocvec(&bitfield).unwrap();
+        let bitfield_again = postcard::from_bytes(&bytes).unwrap();
+
+        assert_eq!(bitfield, bitfield_again);
     }
 }
