@@ -34,7 +34,6 @@ impl Bucket {
     pub fn force_insert(&mut self, fp: Fingerprint) -> Option<Fingerprint> {
         let result = if self.is_full() {
             let old_fp = self.fingerprints.remove(0);
-            self.fingerprints.push(fp);
             Some(old_fp)
         } else {
             None
@@ -122,8 +121,9 @@ mod tests {
         assert_eq!(bucket.force_insert(6), Some(2));
         assert!(bucket.remove(3));
         assert!(!bucket.remove(3));
-        assert_eq!(bucket.force_insert(7), Some(4));
-        assert_eq!(bucket.force_insert(8), Some(5));
-        assert_eq!(bucket.force_insert(9), Some(6));
+        assert_eq!(bucket.force_insert(7), None);
+        assert_eq!(bucket.force_insert(8), Some(4));
+        assert_eq!(bucket.force_insert(9), Some(5));
+        assert_eq!(bucket.len(), 4);
     }
 }
