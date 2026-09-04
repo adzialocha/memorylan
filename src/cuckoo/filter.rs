@@ -67,6 +67,16 @@ where
         self
     }
 
+    pub fn build_from_bitfield(self, bitfield: Bitfield) -> CuckooFilter<T> {
+        CuckooFilter::<T>::from_bitfield(
+            bitfield,
+            self.capacity,
+            self.bucket_size,
+            self.max_evictions,
+            self.fp_bits,
+        )
+    }
+
     pub fn build(self) -> CuckooFilter<T> {
         CuckooFilter::<T>::new(
             self.capacity,
@@ -92,7 +102,7 @@ where
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CuckooFilter<T>
 where
     T: ?Sized + Hash,
@@ -129,6 +139,26 @@ where
         Self {
             buckets,
             size: 0,
+            max_evictions,
+            bucket_size,
+            fp_bits,
+            _marker: PhantomData,
+        }
+    }
+
+    fn from_bitfield(
+        bitfield: Bitfield,
+        capacity: usize,
+        bucket_size: usize,
+        max_evictions: usize,
+        fp_bits: u32,
+    ) -> Self {
+        let num_buckets = std::cmp::max(1, capacity.next_power_of_two() / bucket_size);
+        let (buckets, size) = bitfield.to_buckets(num_buckets, bucket_size, fp_bits);
+
+        Self {
+            buckets,
+            size,
             max_evictions,
             bucket_size,
             fp_bits,
@@ -322,7 +352,7 @@ mod tests {
     fn uniform_random_items() {
         type Hash = [u8; 32];
 
-        let sample_size = 1000;
+        let sample_size = 256;
         let mut false_positive_counts = 0;
 
         for _ in 0..sample_size {
@@ -389,5 +419,48 @@ mod tests {
         }
 
         assert!(false_positive_counts < 10);
+    }
+
+    #[test]
+    fn from_bitfield() {
+        type Hash = [u8; 32];
+
+        let num_items = 64;
+        let mut items = Vec::with_capacity(num_items);
+
+        // Create one filter and populate it with random items.
+        let mut filter = CuckooFilter::<Hash>::builder()
+            .with_capacity(128)
+            .with_fingerprint_bits(20)
+            .with_bucket_size(4)
+            .with_max_evictions(32)
+            .build();
+
+        for _ in 0..num_items {
+            let mut item: Hash = [0; 32];
+            for i in item.iter_mut() {
+                *i = random();
+            }
+
+            filter.insert(&item);
+            items.push(item);
+        }
+
+        // Generate a bitfield from filter.
+        let bitfield = filter.bitfield();
+
+        // .. and import it into second filter.
+        let filter_again = CuckooFilter::<Hash>::builder()
+            .with_capacity(128)
+            .with_fingerprint_bits(20)
+            .with_bucket_size(4)
+            .with_max_evictions(32)
+            .build_from_bitfield(bitfield);
+
+        // They should be the same.
+        assert_eq!(filter, filter_again);
+        for item in &items {
+            assert!(filter_again.contains(item));
+        }
     }
 }

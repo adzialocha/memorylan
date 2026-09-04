@@ -1,6 +1,6 @@
 use crate::cuckoo::{DEFAULT_BUCKET_SIZE, Fingerprint};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bucket {
     size: usize,
     fingerprints: Vec<Fingerprint>,

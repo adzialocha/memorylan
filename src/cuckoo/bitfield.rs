@@ -8,10 +8,6 @@ struct BitPacker {
 }
 
 impl BitPacker {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             output: Vec::with_capacity(capacity),
@@ -19,14 +15,7 @@ impl BitPacker {
         }
     }
 
-    pub fn push_single_bit(&mut self, bit: u8) {
-        // First bit goes to bit 7 (MSB) of the byte.
-        self.current |= (bit & 1) << (7 - self.filled);
-        self.filled += 1;
-        self.try_flush();
-    }
-
-    pub fn push_bits(&mut self, mut value: u32, mut bits: u32) {
+    pub fn push(&mut self, mut value: u32, mut bits: u32) {
         while bits > 0 {
             let space = 8 - self.filled as u32;
             let take = if bits < space { bits } else { space };
@@ -68,6 +57,75 @@ impl BitPacker {
     }
 }
 
+#[derive(Debug)]
+struct BitUnpacker<'a> {
+    data: &'a [u8],
+    byte_index: usize,
+    bit_position: u8,
+}
+
+impl<'a> BitUnpacker<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            byte_index: 0,
+            bit_position: 0,
+        }
+    }
+
+    /// Returns how many bits remain available.
+    fn bits_left(&self) -> u32 {
+        let left = self.data.len().saturating_sub(self.byte_index) as u32;
+        left.saturating_mul(8)
+            .saturating_sub(self.bit_position as u32)
+    }
+
+    /// Read bits MSB-first and return them as a u32. If there aren't enough bits remaining, returns
+    /// None.
+    pub fn read_bits(&mut self, mut bits: u32) -> Option<u32> {
+        // Nothing left anymore, we are done.
+        if bits == 0 {
+            return Some(0);
+        }
+
+        // Trying to read more bits than available.
+        if self.bits_left() < bits {
+            return None;
+        }
+
+        let mut value: u32 = 0;
+        while bits > 0 {
+            // How many bits are available in the current byte?
+            let available = 8u32 - self.bit_position as u32;
+            let take = if bits < available { bits } else { available };
+
+            // Read next chunk.
+            let byte = self.data[self.byte_index];
+            let shift_in_byte = available - take;
+            let mask = if take == 8 {
+                0xFFu8
+            } else {
+                ((1u8 << take) - 1) << shift_in_byte
+            };
+            let chunk = ((byte & mask) >> shift_in_byte) as u32;
+
+            // Append chunk to value (MSB-first).
+            value = (value << take) | chunk;
+
+            // Consume bits and move cursor.
+            self.bit_position += take as u8;
+            if self.bit_position == 8 {
+                self.byte_index += 1;
+                self.bit_position = 0;
+            }
+
+            bits -= take;
+        }
+
+        Some(value)
+    }
+}
+
 // This assumes that bucket size will never be larger than 15 (0b1111 = 15).
 const BUCKET_PREFIX_LEN: u32 = 4;
 
@@ -101,16 +159,74 @@ impl Bitfield {
             let fingerprints = bucket.fingerprints();
 
             // 4-bit length prefix for bucket.
-            packer.push_bits(fingerprints.len() as u32, BUCKET_PREFIX_LEN);
+            packer.push(fingerprints.len() as u32, BUCKET_PREFIX_LEN);
 
             for &fp in fingerprints {
-                packer.push_bits(fp, fp_bits);
+                packer.push(fp, fp_bits);
             }
         }
 
         Self(packer.finalize())
     }
 
+    /// Parse exactly `num_buckets` buckets from this bitfield. If the stream ends early, remaining
+    /// buckets (to reach num_buckets) are returned empty.
+    pub fn to_buckets(
+        &self,
+        num_buckets: usize,
+        bucket_size: usize,
+        fp_bits: u32,
+    ) -> (Vec<Bucket>, usize) {
+        let mut unpacker = BitUnpacker::new(&self.0);
+        let mut buckets: Vec<Bucket> = Vec::with_capacity(num_buckets);
+        let mut size = 0;
+
+        for _ in 0..num_buckets {
+            // Read length prefix for bucket.
+            let len = match unpacker.read_bits(BUCKET_PREFIX_LEN) {
+                Some(prefix) => prefix as usize,
+                None => {
+                    // Stream ended unexpectedly, fill remaining buckets as empty.
+                    while buckets.len() <= num_buckets {
+                        buckets.push(Bucket::new(bucket_size));
+                    }
+
+                    return (buckets, size);
+                }
+            };
+
+            let mut bucket = Bucket::new(bucket_size);
+
+            // Read fingerprints.
+            for _ in 0..len {
+                match unpacker.read_bits(fp_bits) {
+                    Some(fp) => {
+                        size += 1;
+
+                        // If bucket has capacity: insert, otherwise ignore (but keep consuming).
+                        if bucket.len() < bucket_size {
+                            bucket.insert(fp);
+                        }
+                    }
+                    None => {
+                        // Not enough bits left to read a fingerprint: stop parsing and push current
+                        // bucket and fill remaining buckets with empty buckets.
+                        while buckets.len() <= num_buckets {
+                            buckets.push(Bucket::new(bucket_size));
+                        }
+
+                        return (buckets, size);
+                    }
+                }
+            }
+
+            buckets.push(bucket);
+        }
+
+        (buckets, size)
+    }
+
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -118,70 +234,64 @@ impl Bitfield {
 
 #[cfg(test)]
 mod tests {
-    use crate::cuckoo::Bucket;
+    use rand::{random, random_range};
 
-    use super::{BitPacker, Bitfield};
+    use crate::cuckoo::Bucket;
+    use crate::cuckoo::utils::fingerprint;
+    use crate::hash::hash_digest;
+
+    use super::{BitPacker, BitUnpacker, Bitfield};
 
     #[test]
-    fn push_single_bit() {
-        let mut packer = BitPacker::new();
+    fn pack_values() {
+        let mut packer = BitPacker::default();
 
         // 0001 1101
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x1);
+        packer.push(0x0, 1);
+        packer.push(0x0, 1);
+        packer.push(0x0, 1);
+        packer.push(0x1, 1);
+        packer.push(0x1, 1);
+        packer.push(0x1, 1);
+        packer.push(0x0, 1);
+        packer.push(0x1, 1);
 
-        // 1101 0000
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x1);
+        // 1101
+        packer.push(0b1101, 4);
 
         let output = packer.finalize();
         assert_eq!(output[0], 0b0001_1101);
-        assert_eq!(output[1], 0b1011_0000);
-        assert_eq!(output.len(), 2);
-    }
-
-    #[test]
-    fn push_bits() {
-        let mut packer = BitPacker::new();
-
-        // 110
-        packer.push_bits(0b0001_1110, 3);
-
-        // 011
-        packer.push_bits(0b1101_0011, 3);
-
-        // 101
-        packer.push_bits(0b0001_1101, 3);
-
-        // 101
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x1);
-
-        let output = packer.finalize();
-        assert_eq!(output[0], 0b1100_1110);
         assert_eq!(output[1], 0b1101_0000);
         assert_eq!(output.len(), 2);
     }
 
     #[test]
-    fn push_large_bits() {
-        let mut packer = BitPacker::new();
-        packer.push_bits(0xFFFF_FFFF, 20);
+    fn pack_values_exceeding_single_byte() {
+        let mut packer = BitPacker::default();
+        packer.push(0xFFFF_FFFF, 20);
 
         let output = packer.finalize();
         assert_eq!(output[0], 0b1111_1111);
         assert_eq!(output[1], 0b1111_1111);
         assert_eq!(output[2], 0b1111_0000);
         assert_eq!(output.len(), 3);
+    }
+
+    #[test]
+    fn unpack() {
+        let mut unpacker = BitUnpacker::new(&[0b0011_1101, 0b0110_1111]);
+        assert_eq!(unpacker.bits_left(), 16);
+
+        assert_eq!(unpacker.read_bits(4), Some(0b0011));
+        assert_eq!(unpacker.bits_left(), 12);
+
+        assert_eq!(unpacker.read_bits(4), Some(0b1101));
+        assert_eq!(unpacker.bits_left(), 8);
+
+        assert_eq!(unpacker.read_bits(8), Some(0b0110_1111));
+        assert_eq!(unpacker.bits_left(), 0);
+
+        assert_eq!(unpacker.read_bits(2), None);
     }
 
     #[test]
@@ -209,5 +319,40 @@ mod tests {
         assert_eq!(bitfield.0[2], 0b0001_0100);
         //                          ^^^^ Prefix (len=1)
         assert_eq!(bitfield.0.len(), 3);
+    }
+
+    #[test]
+    fn bucket_roundtrip() {
+        let fp_bits = 7;
+        let num_buckets = 32;
+        let bucket_size = 6;
+
+        let mut buckets = Vec::with_capacity(num_buckets);
+        let mut size = 0;
+
+        for _ in 0..num_buckets {
+            let mut bucket = Bucket::new(bucket_size);
+
+            for _ in 0..random_range(0..bucket_size + 1) {
+                let mut item: [u8; 32] = [0; 32];
+                for i in item.iter_mut() {
+                    *i = random();
+                }
+
+                let hash = hash_digest(&item);
+                let fp = fingerprint(hash, fp_bits);
+
+                bucket.insert(fp);
+                size += 1;
+            }
+
+            buckets.push(bucket);
+        }
+
+        let bitfield = Bitfield::from_buckets(&buckets, fp_bits);
+        let (buckets_again, size_again) = bitfield.to_buckets(num_buckets, bucket_size, fp_bits);
+
+        assert_eq!(buckets, buckets_again);
+        assert_eq!(size, size_again);
     }
 }
