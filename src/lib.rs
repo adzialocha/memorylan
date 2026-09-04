@@ -1,4 +1,4 @@
 pub mod cuckoo;
-pub mod hash;
+mod hash;
 pub mod memorylan;
 mod ring;
