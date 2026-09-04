@@ -43,6 +43,10 @@ where
     pub fn with_bucket_size(mut self, bucket_size: usize) -> Self {
         if bucket_size == 0 {
             panic!("bucket size can't be zero");
+        } else if bucket_size > 15 {
+            // The bitfield encodes the len of a bucket with 4 bits which gives us only a max. of
+            // 15 (0b1111 = 15).
+            panic!("bucket size can't be larger than 15");
         }
 
         self.bucket_size = bucket_size;
@@ -219,20 +223,19 @@ where
         self.buckets.len() * self.bucket_size
     }
 
+    /// Encodes an efficient bitfield from filter.
     pub fn bitfield(&self) -> Bitfield {
         Bitfield::from_buckets(&self.buckets, self.fp_bits)
     }
 
-    pub fn max_bitfield_len(&self) -> usize {
-        self.buckets.len() * self.bucket_size * self.fp_bits as usize
+    /// Returns estimated bitfield length in bytes.
+    pub fn bitfield_len(&self) -> usize {
+        Bitfield::estimate_len(&self.buckets, self.fp_bits)
     }
 
-    pub fn bitfield_len(&self) -> usize {
-        let mut result = 0;
-        for bucket in &self.buckets {
-            result += bucket.len() * self.fp_bits as usize;
-        }
-        result
+    /// Returns maximum bitfield length in bytes when all buckets are full.
+    pub fn bitfield_max_len(&self) -> usize {
+        Bitfield::estimate_max_len(self.buckets.len(), self.bucket_size, self.fp_bits)
     }
 
     /// Returns the number of items in the filter.

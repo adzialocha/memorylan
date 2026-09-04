@@ -12,6 +12,13 @@ impl BitPacker {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            output: Vec::with_capacity(capacity),
+            ..Default::default()
+        }
+    }
+
     pub fn push_single_bit(&mut self, bit: u8) {
         // First bit goes to bit 7 (MSB) of the byte.
         self.current |= (bit & 1) << (7 - self.filled);
@@ -61,31 +68,51 @@ impl BitPacker {
     }
 }
 
+// This assumes that bucket size will never be larger than 15 (0b1111 = 15).
+const BUCKET_PREFIX_LEN: u32 = 4;
+
 #[derive(Clone, Debug)]
 pub struct Bitfield(Vec<u8>);
 
 impl Bitfield {
+    /// Returns estimated bitfield length in bytes.
+    pub fn estimate_len(buckets: &[Bucket], fp_bits: u32) -> usize {
+        let mut result = 0;
+        for bucket in buckets {
+            result += BUCKET_PREFIX_LEN as usize; // Length prefix for each bucket.
+            result += bucket.len() * fp_bits as usize;
+        }
+        result.div_ceil(8) // in bytes.
+    }
+
+    /// Returns maximum bitfield length in bytes when all buckets are full.
+    pub fn estimate_max_len(num_buckets: usize, bucket_size: usize, fp_bits: u32) -> usize {
+        let result = (num_buckets * BUCKET_PREFIX_LEN as usize)
+            + (num_buckets * bucket_size * fp_bits as usize);
+        result.div_ceil(8) // in bytes.
+    }
+
+    /// Encodes an efficient bitfield from cuckoo-filter buckets.
     pub(crate) fn from_buckets(buckets: &[Bucket], fp_bits: u32) -> Self {
-        let mut packer = BitPacker::new();
+        let capacity = Self::estimate_len(buckets, fp_bits);
+        let mut packer = BitPacker::with_capacity(capacity);
 
         for bucket in buckets {
-            for &fp in bucket.fingerprints() {
-                let value = if fp_bits == 32 {
-                    fp
-                } else {
-                    fp & ((1u32 << fp_bits) - 1)
-                };
+            let fingerprints = bucket.fingerprints();
 
-                packer.push_bits(value, fp_bits);
+            // 4-bit length prefix for bucket.
+            packer.push_bits(fingerprints.len() as u32, BUCKET_PREFIX_LEN);
+
+            for &fp in fingerprints {
+                packer.push_bits(fp, fp_bits);
             }
-
-            // Divide buckets with a zero-bit.
-            packer.push_single_bit(0);
         }
 
-        let bitfield = packer.finalize();
+        Self(packer.finalize())
+    }
 
-        Self(bitfield)
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -158,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn bucket_separator() {
+    fn bucket_len_prefix() {
         let fp_bits = 4;
 
         let fp_1 = 0x1; // b0001
@@ -176,10 +203,11 @@ mod tests {
 
         let bitfield = Bitfield::from_buckets(&[bucket_1, bucket_2], fp_bits);
 
-        assert_eq!(bitfield.0[0], 0b0001_0010);
-        assert_eq!(bitfield.0[1], 0b0011_0010);
-        //                               ^ Separator
-        assert_eq!(bitfield.0[2], 0b0000_0000);
-        //                           ^ Separator
+        assert_eq!(bitfield.0[0], 0b0011_0001);
+        //                          ^^^^ Prefix (len=3)
+        assert_eq!(bitfield.0[1], 0b0010_0011);
+        assert_eq!(bitfield.0[2], 0b0001_0100);
+        //                          ^^^^ Prefix (len=1)
+        assert_eq!(bitfield.0.len(), 3);
     }
 }
