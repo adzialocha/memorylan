@@ -2,8 +2,93 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use crate::cuckoo::utils::{alt_index, fingerprint_index};
-use crate::cuckoo::{Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_MAX_EVICTIONS, Fingerprint};
+use crate::cuckoo::{
+    Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY, DEFAULT_FINGERPRINT_BITS,
+    DEFAULT_MAX_EVICTIONS, Fingerprint,
+};
 
+pub struct CuckooFilterBuilder<T>
+where
+    T: ?Sized + Hash,
+{
+    capacity: usize,
+    max_evictions: usize,
+    bucket_size: usize,
+    fp_bits: u32,
+    _marker: PhantomData<T>,
+}
+
+impl<T> CuckooFilterBuilder<T>
+where
+    T: ?Sized + Hash,
+{
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        if capacity == 0 {
+            panic!("capacity can't be zero");
+        }
+
+        self.capacity = capacity;
+        self
+    }
+
+    pub fn with_max_evictions(mut self, max_evictions: usize) -> Self {
+        self.max_evictions = max_evictions;
+        self
+    }
+
+    pub fn with_bucket_size(mut self, bucket_size: usize) -> Self {
+        if bucket_size == 0 {
+            panic!("bucket size can't be zero");
+        }
+
+        self.bucket_size = bucket_size;
+        self
+    }
+
+    pub fn with_fingerprint_bits(mut self, fp_bits: u32) -> Self {
+        if fp_bits > Fingerprint::bit_width(Fingerprint::MAX) {
+            panic!(
+                "fp_bits can't be larger than {}",
+                Fingerprint::bit_width(Fingerprint::MAX)
+            );
+        } else if fp_bits == 0 {
+            panic!("fp_bits can't be zero");
+        }
+
+        self.fp_bits = fp_bits;
+        self
+    }
+
+    pub fn build(self) -> CuckooFilter<T> {
+        CuckooFilter::<T>::new(
+            self.capacity,
+            self.bucket_size,
+            self.max_evictions,
+            self.fp_bits,
+        )
+    }
+}
+
+impl<T> Default for CuckooFilterBuilder<T>
+where
+    T: ?Sized + Hash,
+{
+    fn default() -> Self {
+        Self {
+            capacity: DEFAULT_CAPACITY,
+            max_evictions: DEFAULT_MAX_EVICTIONS,
+            bucket_size: DEFAULT_BUCKET_SIZE,
+            fp_bits: DEFAULT_FINGERPRINT_BITS,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct CuckooFilter<T>
 where
     T: ?Sized + Hash,
@@ -12,17 +97,28 @@ where
     size: usize,
     max_evictions: usize,
     bucket_size: usize,
+    fp_bits: u32,
     _marker: PhantomData<T>,
+}
+
+impl<T> Default for CuckooFilter<T>
+where
+    T: ?Sized + Hash,
+{
+    fn default() -> Self {
+        CuckooFilterBuilder::default().build()
+    }
 }
 
 impl<T> CuckooFilter<T>
 where
     T: ?Sized + Hash,
 {
-    pub fn new(capacity: usize) -> Self {
-        let bucket_size = DEFAULT_BUCKET_SIZE;
-        let max_evictions = DEFAULT_MAX_EVICTIONS;
+    pub fn builder() -> CuckooFilterBuilder<T> {
+        CuckooFilterBuilder::new()
+    }
 
+    fn new(capacity: usize, bucket_size: usize, max_evictions: usize, fp_bits: u32) -> Self {
         let num_buckets = std::cmp::max(1, capacity.next_power_of_two() / bucket_size);
         let buckets = (0..num_buckets).map(|_| Bucket::new(bucket_size)).collect();
 
@@ -31,6 +127,7 @@ where
             size: 0,
             max_evictions,
             bucket_size,
+            fp_bits,
             _marker: PhantomData,
         }
     }
@@ -38,7 +135,7 @@ where
     pub fn insert(&mut self, item: &T) -> bool {
         let num_buckets = self.buckets.len();
 
-        let (fp, i1) = fingerprint_index(item, num_buckets);
+        let (fp, i1) = fingerprint_index(item, num_buckets, self.fp_bits);
         if self.buckets[i1].insert(fp) {
             self.size += 1;
             return true;
@@ -79,7 +176,7 @@ where
     pub fn contains(&self, item: &T) -> bool {
         let num_buckets = self.buckets.len();
 
-        let (fp, i1) = fingerprint_index(item, num_buckets);
+        let (fp, i1) = fingerprint_index(item, num_buckets, self.fp_bits);
         if self.buckets[i1].contains(fp) {
             return true;
         }
@@ -91,7 +188,7 @@ where
     pub fn remove(&mut self, item: &T) -> bool {
         let num_buckets = self.buckets.len();
 
-        let (fp, i1) = fingerprint_index(item, num_buckets);
+        let (fp, i1) = fingerprint_index(item, num_buckets, self.fp_bits);
         if self.buckets[i1].remove(fp) {
             self.size -= 1;
             return true;
@@ -133,11 +230,14 @@ where
 mod tests {
     use rand::random;
 
+    use crate::cuckoo::DEFAULT_CAPACITY;
+
     use super::CuckooFilter;
 
     #[test]
     fn insert_and_contains_items() {
-        let mut filter = CuckooFilter::new(128);
+        let mut filter = CuckooFilter::default();
+        assert_eq!(filter.capacity(), DEFAULT_CAPACITY);
 
         filter.insert(b"Pi");
         filter.insert(b"Pa");
@@ -149,7 +249,7 @@ mod tests {
 
     #[test]
     fn remove_items() {
-        let mut filter = CuckooFilter::new(128);
+        let mut filter = CuckooFilter::default();
 
         filter.insert(b"test");
         assert!(filter.contains(b"test"));
@@ -160,7 +260,7 @@ mod tests {
 
     #[test]
     fn insert_multiple() {
-        let mut filter = CuckooFilter::new(128);
+        let mut filter = CuckooFilter::builder().with_capacity(128).build();
         let num = 64;
 
         for i in 0..num {
@@ -185,7 +285,7 @@ mod tests {
 
     #[test]
     fn check_len() {
-        let mut filter = CuckooFilter::new(128);
+        let mut filter = CuckooFilter::default();
         assert_eq!(filter.len(), 0);
 
         filter.insert(b"a");
@@ -200,9 +300,9 @@ mod tests {
         type Hash = [u8; 32];
 
         for _ in 0..100 {
-            let mut filter = CuckooFilter::<Hash>::new(512);
+            let mut filter = CuckooFilter::<Hash>::default();
 
-            let num_items = 64;
+            let num_items = 96;
             let mut items = Vec::with_capacity(num_items);
             let mut false_items = Vec::with_capacity(num_items);
 
@@ -215,6 +315,7 @@ mod tests {
                     *i = random();
                 }
 
+                // If this is high, we have too little capacity.
                 if !filter.insert(&item) {
                     failed_inserts += 1;
                 }
@@ -222,6 +323,7 @@ mod tests {
                 items.push(item);
             }
 
+            // If this is high, we kicked out too many items due to low evict num or capacity.
             for item in &items {
                 if !filter.contains(item) {
                     failed_contains += 1;
@@ -237,6 +339,7 @@ mod tests {
                 false_items.push(item);
             }
 
+            // Fingerprint size can improve this.
             let mut false_positives = 0;
             for item in &false_items {
                 if filter.contains(item) {

@@ -3,36 +3,35 @@ use std::hash::Hash;
 use crate::cuckoo::{BucketIndex, Fingerprint};
 use crate::hash::{Digest, hash_digest};
 
-pub fn fingerprint(hash: Digest) -> Fingerprint {
-    hash as Fingerprint
+pub fn fingerprint(hash: Digest, fp_bits: u32) -> Fingerprint {
+    let mask: Digest = ((1 as Digest) << fp_bits) - 1;
+    (hash & mask) as Fingerprint
 }
 
 pub fn fingerprint_index<T: ?Sized + Hash>(
     item: &T,
     num_buckets: usize,
+    fp_bits: u32,
 ) -> (Fingerprint, BucketIndex) {
     let hash = hash_digest(&item);
-    let fp = fingerprint(hash);
+    let fp = fingerprint(hash, fp_bits);
     let i1 = hash as BucketIndex & (num_buckets as BucketIndex - 1);
     (fp, i1)
 }
 
 pub fn alt_index(fingerprint: Fingerprint, index: BucketIndex, num_buckets: usize) -> BucketIndex {
     let alt_hash = index as Digest ^ hash_digest(&fingerprint);
-
     alt_hash as BucketIndex & (num_buckets as BucketIndex - 1)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::hash::Digest;
-
     use super::{alt_index, fingerprint_index};
 
     #[test]
     fn modulo_num_buckets() {
         for i in 0..u16::MAX {
-            let (_fp, i1) = fingerprint_index(&i, 64);
+            let (_fp, i1) = fingerprint_index(&i, 64, 8);
             assert!(i1 <= 63);
         }
     }
@@ -41,7 +40,7 @@ mod tests {
     fn xor_symmetry() {
         let item: [u8; 32] = [0; 32];
 
-        let (fp, i1) = fingerprint_index(&item, 64);
+        let (fp, i1) = fingerprint_index(&item, 64, 8);
 
         // h2(x) = h1(x) XOR hash(fp(x))
         let i2 = alt_index(fp, i1, 64);

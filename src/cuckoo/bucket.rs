@@ -1,4 +1,6 @@
-pub type Fingerprint = u8;
+use crate::cuckoo::DEFAULT_BUCKET_SIZE;
+
+pub type Fingerprint = u16;
 
 #[derive(Clone, Debug)]
 pub struct Bucket {
@@ -8,7 +10,7 @@ pub struct Bucket {
 
 impl Default for Bucket {
     fn default() -> Self {
-        Self::new(4)
+        Self::new(DEFAULT_BUCKET_SIZE)
     }
 }
 
@@ -67,6 +69,10 @@ impl Bucket {
     pub fn len(&self) -> usize {
         self.fingerprints.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.fingerprints.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -118,6 +124,6 @@ mod tests {
         assert!(!bucket.remove(3));
         assert_eq!(bucket.force_insert(7), Some(4));
         assert_eq!(bucket.force_insert(8), Some(5));
-        assert_eq!(bucket.force_insert(9), None);
+        assert_eq!(bucket.force_insert(9), Some(6));
     }
 }
