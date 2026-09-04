@@ -11,9 +11,16 @@ pub enum RingSetMode {
 
 #[derive(Debug, PartialEq)]
 pub enum PushOutcome<M> {
-    Ignored,
-    Prioritised,
+    /// Item was inserted.
     Inserted,
+
+    /// Item already exists and was ignored.
+    Ignored,
+
+    /// Item already exists and was prioritised.
+    Prioritised,
+
+    /// Item was inserted and caused another item to be evicted.
     Evicted(M),
 }
 
