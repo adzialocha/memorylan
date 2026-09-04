@@ -211,8 +211,24 @@ where
         self.size = 0;
     }
 
+    pub fn num_buckets(&self) -> usize {
+        self.buckets.len()
+    }
+
     pub fn capacity(&self) -> usize {
         self.buckets.len() * self.bucket_size
+    }
+
+    pub fn max_bitfield_len(&self) -> usize {
+        self.buckets.len() * self.bucket_size * self.fp_bits as usize
+    }
+
+    pub fn bitfield_len(&self) -> usize {
+        let mut result = 0;
+        for bucket in &self.buckets {
+            result += bucket.len() * self.fp_bits as usize;
+        }
+        result
     }
 
     /// Returns the number of items in the filter.
