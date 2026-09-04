@@ -25,8 +25,8 @@ impl<M> From<M> for Message<M> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outgoing<M> {
-    updates: Vec<M>,
-    broadcast: Vec<Message<M>>,
+    pub updates: Vec<M>,
+    pub broadcast: Vec<Message<M>>,
 }
 
 impl<M> Default for Outgoing<M> {
