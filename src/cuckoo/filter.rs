@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 
 use crate::cuckoo::utils::{alt_index, fingerprint_index};
 use crate::cuckoo::{
-    Bitfield, Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY, DEFAULT_FINGERPRINT_BITS,
-    DEFAULT_MAX_EVICTIONS, Fingerprint,
+    Bitfield, BitfieldError, Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY,
+    DEFAULT_FINGERPRINT_BITS, DEFAULT_MAX_EVICTIONS, Fingerprint,
 };
 
 pub struct CuckooFilterBuilder<T>
@@ -67,7 +67,7 @@ where
         self
     }
 
-    pub fn build_from_bitfield(self, bitfield: Bitfield) -> CuckooFilter<T> {
+    pub fn build_from_bitfield(self, bitfield: Bitfield) -> Result<CuckooFilter<T>, BitfieldError> {
         CuckooFilter::<T>::from_bitfield(
             bitfield,
             self.capacity,
@@ -152,18 +152,18 @@ where
         bucket_size: usize,
         max_evictions: usize,
         fp_bits: u32,
-    ) -> Self {
+    ) -> Result<Self, BitfieldError> {
         let num_buckets = std::cmp::max(1, capacity.next_power_of_two() / bucket_size);
-        let (buckets, size) = bitfield.to_buckets(num_buckets, bucket_size, fp_bits);
+        let (buckets, size) = bitfield.to_buckets(num_buckets, bucket_size, fp_bits)?;
 
-        Self {
+        Ok(Self {
             buckets,
             size,
             max_evictions,
             bucket_size,
             fp_bits,
             _marker: PhantomData,
-        }
+        })
     }
 
     pub fn insert(&mut self, item: &T) -> bool {
@@ -455,7 +455,8 @@ mod tests {
             .with_fingerprint_bits(20)
             .with_bucket_size(4)
             .with_max_evictions(32)
-            .build_from_bitfield(bitfield);
+            .build_from_bitfield(bitfield)
+            .expect("bitfield encoding is correct");
 
         // They should be the same.
         assert_eq!(filter, filter_again);

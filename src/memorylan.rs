@@ -1,11 +1,12 @@
 use std::hash::Hash;
 
+use crate::cuckoo::Bitfield;
 use crate::hash::{Digest, hash_digest};
 use crate::ring::{RingSet, RingSetMode};
 
 pub enum Message<M> {
     MemoryPage(M),
-    RepairRequest,
+    RepairRequest(Bitfield),
 }
 
 pub struct MemoryLan<M> {
@@ -49,8 +50,8 @@ where
     pub fn process(&mut self, message: Message<M>) {
         match message {
             Message::MemoryPage(memory_page) => self.incoming_memory_page(memory_page),
-            Message::RepairRequest => {
-                self.incoming_repair_request();
+            Message::RepairRequest(bitfield) => {
+                self.incoming_repair_request(bitfield);
             }
         }
     }
@@ -59,7 +60,7 @@ where
         todo!();
     }
 
-    fn incoming_repair_request(&mut self) {
+    fn incoming_repair_request(&mut self, _bitfield: Bitfield) {
         todo!();
     }
 

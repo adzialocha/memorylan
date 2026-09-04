@@ -15,6 +15,6 @@ const DEFAULT_FINGERPRINT_BITS: u32 = 20; // Max. 32
 
 pub type BucketIndex = usize;
 
-pub use bitfield::Bitfield;
+pub use bitfield::{Bitfield, BitfieldError};
 pub use bucket::Bucket;
 pub use filter::{CuckooFilter, CuckooFilterBuilder};

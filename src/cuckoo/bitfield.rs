@@ -169,6 +169,19 @@ impl Bitfield {
         Self(packer.finalize())
     }
 
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        Self(bytes.to_vec())
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     /// Parse exactly `num_buckets` buckets from this bitfield. If the stream ends early, remaining
     /// buckets (to reach num_buckets) are returned empty.
     pub fn to_buckets(
@@ -176,7 +189,7 @@ impl Bitfield {
         num_buckets: usize,
         bucket_size: usize,
         fp_bits: u32,
-    ) -> (Vec<Bucket>, usize) {
+    ) -> Result<(Vec<Bucket>, usize), BitfieldError> {
         let mut unpacker = BitUnpacker::new(&self.0);
         let mut buckets: Vec<Bucket> = Vec::with_capacity(num_buckets);
         let mut size = 0;
@@ -186,12 +199,9 @@ impl Bitfield {
             let len = match unpacker.read_bits(BUCKET_PREFIX_LEN) {
                 Some(prefix) => prefix as usize,
                 None => {
-                    // Stream ended unexpectedly, fill remaining buckets as empty.
-                    while buckets.len() <= num_buckets {
-                        buckets.push(Bucket::new(bucket_size));
-                    }
-
-                    return (buckets, size);
+                    return Err(BitfieldError::from_str(
+                        "stream ended unexpectedly when reading bucket len prefix",
+                    ));
                 }
             };
 
@@ -209,13 +219,9 @@ impl Bitfield {
                         }
                     }
                     None => {
-                        // Not enough bits left to read a fingerprint: stop parsing and push current
-                        // bucket and fill remaining buckets with empty buckets.
-                        while buckets.len() <= num_buckets {
-                            buckets.push(Bucket::new(bucket_size));
-                        }
-
-                        return (buckets, size);
+                        return Err(BitfieldError::from_str(
+                            "not enough bits left to read a fingerprint",
+                        ));
                     }
                 }
             }
@@ -223,12 +229,27 @@ impl Bitfield {
             buckets.push(bucket);
         }
 
-        (buckets, size)
+        Ok((buckets, size))
     }
 
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+}
+
+#[derive(Debug)]
+pub struct BitfieldError(String);
+
+impl std::fmt::Display for BitfieldError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl BitfieldError {
+    fn from_str(error_str: &str) -> Self {
+        Self(error_str.to_owned())
     }
 }
 
@@ -350,9 +371,28 @@ mod tests {
         }
 
         let bitfield = Bitfield::from_buckets(&buckets, fp_bits);
-        let (buckets_again, size_again) = bitfield.to_buckets(num_buckets, bucket_size, fp_bits);
+        let (buckets_again, size_again) = bitfield
+            .to_buckets(num_buckets, bucket_size, fp_bits)
+            .expect("encoding is correct");
 
         assert_eq!(buckets, buckets_again);
         assert_eq!(size, size_again);
+    }
+
+    #[test]
+    fn unpack_not_enough_buckets() {
+        // We can store 2 bucket prefixes in one byte (2 x 4 bits) and only have one byte (empty
+        // lenghts), but we expect 3 buckets here:
+        assert!(Bitfield(vec![0]).to_buckets(3, 4, 8).is_err());
+    }
+
+    #[test]
+    fn unpack_not_enough_fingerprints() {
+        assert!(
+            Bitfield(vec![0b0110_1100, 0b0011_1010])
+                //              ^^^^ indicate len of 6, but only 3 fingerprints are given.
+                .to_buckets(1, 4, 4)
+                .is_err()
+        );
     }
 }
