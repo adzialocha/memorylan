@@ -70,6 +70,10 @@ impl Bucket {
     pub fn is_empty(&self) -> bool {
         self.fingerprints.is_empty()
     }
+
+    pub fn fingerprints(&self) -> &[Fingerprint] {
+        &self.fingerprints
+    }
 }
 
 #[cfg(test)]

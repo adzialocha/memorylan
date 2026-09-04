@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::cuckoo::utils::{alt_index, fingerprint_index};
 use crate::cuckoo::{
-    Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY, DEFAULT_FINGERPRINT_BITS,
+    Bitfield, Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY, DEFAULT_FINGERPRINT_BITS,
     DEFAULT_MAX_EVICTIONS, Fingerprint,
 };
 
@@ -217,6 +217,10 @@ where
 
     pub fn capacity(&self) -> usize {
         self.buckets.len() * self.bucket_size
+    }
+
+    pub fn bitfield(&self) -> Bitfield {
+        Bitfield::from_buckets(&self.buckets, self.fp_bits)
     }
 
     pub fn max_bitfield_len(&self) -> usize {
