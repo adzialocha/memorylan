@@ -11,7 +11,7 @@ pub enum RingSetMode {
 
 #[derive(Debug, PartialEq)]
 pub enum PushOutcome<M> {
-    DuplicateIgnored,
+    Ignored,
     Prioritised,
     Inserted,
     Evicted(M),
@@ -19,7 +19,7 @@ pub enum PushOutcome<M> {
 
 impl<M> PushOutcome<M> {
     pub fn was_ignored(&self) -> bool {
-        matches!(self, PushOutcome::DuplicateIgnored)
+        matches!(self, PushOutcome::Ignored)
     }
 }
 
@@ -50,7 +50,7 @@ where
         match self.mode {
             RingSetMode::Regular => {
                 if self.contains(&item) {
-                    return PushOutcome::DuplicateIgnored;
+                    return PushOutcome::Ignored;
                 }
             }
             RingSetMode::HotToTop => {
@@ -103,7 +103,7 @@ mod tests {
 
         assert_eq!(ring.push(1), PushOutcome::Inserted); // [1]
         assert_eq!(ring.push(2), PushOutcome::Inserted); // [1, 2]
-        assert_eq!(ring.push(1), PushOutcome::DuplicateIgnored); // [1, 2]
+        assert_eq!(ring.push(1), PushOutcome::Ignored); // [1, 2]
         assert!(ring.contains(&1));
         assert_eq!(ring.len(), 2);
     }
