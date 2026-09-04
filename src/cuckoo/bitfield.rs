@@ -13,7 +13,8 @@ impl BitPacker {
     }
 
     pub fn push_single_bit(&mut self, bit: u8) {
-        self.current |= (bit & 1) << self.filled;
+        // First bit goes to bit 7 (MSB) of the byte.
+        self.current |= (bit & 1) << (7 - self.filled);
         self.filled += 1;
         self.try_flush();
     }
@@ -23,19 +24,19 @@ impl BitPacker {
             let space = 8 - self.filled as u32;
             let take = if bits < space { bits } else { space };
 
-            // Take "take" LSBs from value.
             let mask = if take == 32 {
                 u32::MAX
             } else {
                 (1u32 << take) - 1
             };
 
-            let chunk = (value & mask) as u8;
+            let shift = bits - take;
+            let chunk = ((value >> shift) & mask) as u8;
 
-            // Place chunk into "current" at position "filled".
-            self.current |= chunk << self.filled;
+            let dest_shift = (8 - self.filled as u32 - take) as u8;
+            self.current |= chunk << dest_shift;
             self.filled += take as u8;
-            value >>= take;
+            value &= if shift == 0 { 0 } else { (1u32 << shift) - 1 };
             bits -= take;
 
             self.try_flush();
@@ -98,7 +99,7 @@ mod tests {
     fn push_single_bit() {
         let mut packer = BitPacker::new();
 
-        // 1011 1000 = 184
+        // 0001 1101
         packer.push_single_bit(0x0);
         packer.push_single_bit(0x0);
         packer.push_single_bit(0x0);
@@ -108,15 +109,15 @@ mod tests {
         packer.push_single_bit(0x0);
         packer.push_single_bit(0x1);
 
-        // 0000 1101 = 13
+        // 1101 0000
         packer.push_single_bit(0x1);
         packer.push_single_bit(0x0);
         packer.push_single_bit(0x1);
         packer.push_single_bit(0x1);
 
         let output = packer.finalize();
-        assert_eq!(output[0], 0b1011_1000);
-        assert_eq!(output[1], 0b0000_1101);
+        assert_eq!(output[0], 0b0001_1101);
+        assert_eq!(output[1], 0b1011_0000);
         assert_eq!(output.len(), 2);
     }
 
@@ -139,35 +140,21 @@ mod tests {
         packer.push_single_bit(0x1);
 
         let output = packer.finalize();
-
-        assert_eq!(output[0], 0b0101_1110);
-        assert_eq!(output[1], 0b0000_1011);
+        assert_eq!(output[0], 0b1100_1110);
+        assert_eq!(output[1], 0b1101_0000);
         assert_eq!(output.len(), 2);
     }
 
     #[test]
     fn push_large_bits() {
         let mut packer = BitPacker::new();
-
-        // 110
-        packer.push_bits(0b0001_1110, 3);
-
-        // 011
-        packer.push_bits(0b1101_0011, 3);
-
-        // 101
-        packer.push_bits(0b0001_1101, 3);
-
-        // 101
-        packer.push_single_bit(0x1);
-        packer.push_single_bit(0x0);
-        packer.push_single_bit(0x1);
+        packer.push_bits(0xFFFF_FFFF, 20);
 
         let output = packer.finalize();
-
-        assert_eq!(output[0], 0b0101_1110);
-        assert_eq!(output[1], 0b0000_1011);
-        assert_eq!(output.len(), 2);
+        assert_eq!(output[0], 0b1111_1111);
+        assert_eq!(output[1], 0b1111_1111);
+        assert_eq!(output[2], 0b1111_0000);
+        assert_eq!(output.len(), 3);
     }
 
     #[test]
@@ -189,10 +176,10 @@ mod tests {
 
         let bitfield = Bitfield::from_buckets(&[bucket_1, bucket_2], fp_bits);
 
-        assert_eq!(bitfield.0[0], 0b0010_0001);
-        assert_eq!(bitfield.0[1], 0b1000_0011);
-        //                             ^ Separator
+        assert_eq!(bitfield.0[0], 0b0001_0010);
+        assert_eq!(bitfield.0[1], 0b0011_0010);
+        //                               ^ Separator
         assert_eq!(bitfield.0[2], 0b0000_0000);
-        //                                 ^ Separator
+        //                           ^ Separator
     }
 }
