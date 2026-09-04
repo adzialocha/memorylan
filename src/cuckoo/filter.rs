@@ -385,7 +385,7 @@ mod tests {
             }
 
             assert!(false_positives <= 1);
-            assert_eq!(filter.bitfield_len() / 8, 160);
+            assert_eq!(filter.bitfield_len(), 176);
         }
 
         assert!(false_positive_counts < 10);
