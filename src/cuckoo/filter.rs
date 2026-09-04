@@ -315,10 +315,13 @@ mod tests {
     fn uniform_random_items() {
         type Hash = [u8; 32];
 
-        for _ in 0..128 {
+        let sample_size = 1000;
+        let mut false_positive_counts = 0;
+
+        for _ in 0..sample_size {
             let mut filter = CuckooFilter::<Hash>::builder()
                 .with_capacity(128)
-                .with_fingerprint_bits(24)
+                .with_fingerprint_bits(20)
                 .with_bucket_size(4)
                 .with_max_evictions(32)
                 .build();
@@ -370,7 +373,14 @@ mod tests {
                 }
             }
 
+            if false_positives > 0 {
+                false_positive_counts += 1;
+            }
+
             assert!(false_positives <= 1);
+            assert_eq!(filter.bitfield_len() / 8, 160);
         }
+
+        assert!(false_positive_counts < 10);
     }
 }
