@@ -1,6 +1,4 @@
-use crate::cuckoo::DEFAULT_BUCKET_SIZE;
-
-pub type Fingerprint = u16;
+use crate::cuckoo::{DEFAULT_BUCKET_SIZE, Fingerprint};
 
 #[derive(Clone, Debug)]
 pub struct Bucket {
