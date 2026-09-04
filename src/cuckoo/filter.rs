@@ -245,6 +245,7 @@ where
         self.size = 0;
     }
 
+    #[allow(unused)]
     pub fn num_buckets(&self) -> usize {
         self.buckets.len()
     }
@@ -259,11 +260,13 @@ where
     }
 
     /// Returns estimated bitfield length in bytes.
+    #[allow(unused)]
     pub fn bitfield_len(&self) -> usize {
         Bitfield::estimate_len(&self.buckets, self.fp_bits)
     }
 
     /// Returns maximum bitfield length in bytes when all buckets are full.
+    #[allow(unused)]
     pub fn bitfield_max_len(&self) -> usize {
         Bitfield::estimate_max_len(self.buckets.len(), self.bucket_size, self.fp_bits)
     }
@@ -274,6 +277,7 @@ where
     }
 
     /// Checks if the filter is empty.
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }

@@ -67,6 +67,7 @@ impl Bucket {
         self.fingerprints.len()
     }
 
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         self.fingerprints.is_empty()
     }

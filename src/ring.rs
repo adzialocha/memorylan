@@ -9,6 +9,20 @@ pub enum RingSetMode {
     HotToTop,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum PushOutcome<M> {
+    DuplicateIgnored,
+    Prioritised,
+    Inserted,
+    Evicted(M),
+}
+
+impl<M> PushOutcome<M> {
+    pub fn was_ignored(&self) -> bool {
+        matches!(self, PushOutcome::DuplicateIgnored)
+    }
+}
+
 #[derive(Debug)]
 pub struct RingSet<M> {
     capacity: usize,
@@ -32,17 +46,17 @@ where
         self.set.contains(item)
     }
 
-    pub fn push(&mut self, item: M) -> Option<M> {
+    pub fn push(&mut self, item: M) -> PushOutcome<M> {
         match self.mode {
             RingSetMode::Regular => {
                 if self.contains(&item) {
-                    return None;
+                    return PushOutcome::DuplicateIgnored;
                 }
             }
             RingSetMode::HotToTop => {
                 if self.set.shift_remove(&item) {
                     self.set.insert(item);
-                    return None;
+                    return PushOutcome::Prioritised;
                 }
             }
         }
@@ -51,13 +65,17 @@ where
             if let Some(oldest) = self.set.first().cloned() {
                 self.set.shift_remove(&oldest);
                 self.set.insert(item);
-                return Some(oldest);
+                return PushOutcome::Evicted(oldest);
             }
         } else {
             self.set.insert(item);
         }
 
-        None
+        PushOutcome::Inserted
+    }
+
+    pub fn iter(&self) -> indexmap::set::Iter<'_, M> {
+        self.set.iter()
     }
 
     pub fn clear(&mut self) {
@@ -75,15 +93,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::ring::PushOutcome;
+
     use super::{RingSet, RingSetMode};
 
     #[test]
     fn ring_set_regular() {
         let mut ring = RingSet::new(3, RingSetMode::default());
 
-        assert_eq!(ring.push(1), None); // [1]
-        assert_eq!(ring.push(2), None); // [1, 2]
-        assert_eq!(ring.push(1), None); // [1, 2]
+        assert_eq!(ring.push(1), PushOutcome::Inserted); // [1]
+        assert_eq!(ring.push(2), PushOutcome::Inserted); // [1, 2]
+        assert_eq!(ring.push(1), PushOutcome::DuplicateIgnored); // [1, 2]
         assert!(ring.contains(&1));
         assert_eq!(ring.len(), 2);
     }
@@ -92,15 +112,15 @@ mod tests {
     fn ring_set_hot_mode() {
         let mut ring = RingSet::new(3, RingSetMode::HotToTop);
 
-        assert_eq!(ring.push(1), None); // [1]
-        assert_eq!(ring.push(2), None); // [1, 2]
+        assert_eq!(ring.push(1), PushOutcome::Inserted); // [1]
+        assert_eq!(ring.push(2), PushOutcome::Inserted); // [1, 2]
         assert!(ring.contains(&1));
 
         // Re-inserting 1 moves it to the back.
-        assert_eq!(ring.push(1), None); // [2, 1]
+        assert_eq!(ring.push(1), PushOutcome::Prioritised); // [2, 1]
 
         // Reaching capacity will dequeue oldest item.
-        assert_eq!(ring.push(3), None); // [2, 1, 3]
-        assert_eq!(ring.push(4), Some(2)); // [1, 3, 4]
+        assert_eq!(ring.push(3), PushOutcome::Inserted); // [2, 1, 3]
+        assert_eq!(ring.push(4), PushOutcome::Evicted(2)); // [1, 3, 4]
     }
 }

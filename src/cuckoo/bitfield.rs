@@ -129,12 +129,25 @@ impl<'a> BitUnpacker<'a> {
 // This assumes that bucket size will never be larger than 15 (0b1111 = 15).
 const BUCKET_PREFIX_LEN: u32 = 4;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bitfield(Vec<u8>);
 
 impl Bitfield {
+    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        Self(bytes.to_vec())
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     /// Returns estimated bitfield length in bytes.
-    pub fn estimate_len(buckets: &[Bucket], fp_bits: u32) -> usize {
+    pub(crate) fn estimate_len(buckets: &[Bucket], fp_bits: u32) -> usize {
         let mut result = 0;
         for bucket in buckets {
             result += BUCKET_PREFIX_LEN as usize; // Length prefix for each bucket.
@@ -144,7 +157,8 @@ impl Bitfield {
     }
 
     /// Returns maximum bitfield length in bytes when all buckets are full.
-    pub fn estimate_max_len(num_buckets: usize, bucket_size: usize, fp_bits: u32) -> usize {
+    #[allow(unused)]
+    pub(crate) fn estimate_max_len(num_buckets: usize, bucket_size: usize, fp_bits: u32) -> usize {
         let result = (num_buckets * BUCKET_PREFIX_LEN as usize)
             + (num_buckets * bucket_size * fp_bits as usize);
         result.div_ceil(8) // in bytes.
@@ -169,22 +183,9 @@ impl Bitfield {
         Self(packer.finalize())
     }
 
-    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Self {
-        let bytes = bytes.as_ref();
-        Self(bytes.to_vec())
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.clone()
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
     /// Parse exactly `num_buckets` buckets from this bitfield. If the stream ends early, remaining
     /// buckets (to reach num_buckets) are returned empty.
-    pub fn to_buckets(
+    pub(crate) fn to_buckets(
         &self,
         num_buckets: usize,
         bucket_size: usize,

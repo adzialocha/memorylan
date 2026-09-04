@@ -1,4 +1,7 @@
-pub mod cuckoo;
+mod cuckoo;
 mod hash;
-pub mod memorylan;
+mod memorylan;
 mod ring;
+
+pub use cuckoo::{Bitfield, BitfieldError};
+pub use memorylan::{MemoryLan, MemoryLanBuilder, Outgoing};
