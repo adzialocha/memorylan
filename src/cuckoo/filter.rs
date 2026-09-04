@@ -315,10 +315,15 @@ mod tests {
     fn uniform_random_items() {
         type Hash = [u8; 32];
 
-        for _ in 0..100 {
-            let mut filter = CuckooFilter::<Hash>::default();
+        for _ in 0..128 {
+            let mut filter = CuckooFilter::<Hash>::builder()
+                .with_capacity(128)
+                .with_fingerprint_bits(24)
+                .with_bucket_size(4)
+                .with_max_evictions(32)
+                .build();
 
-            let num_items = 96;
+            let num_items = 64;
             let mut items = Vec::with_capacity(num_items);
             let mut false_items = Vec::with_capacity(num_items);
 
@@ -346,6 +351,8 @@ mod tests {
                 }
             }
 
+            assert_eq!(failed_inserts, failed_contains);
+
             for _ in 0..num_items {
                 let mut item: Hash = [0; 32];
                 for i in item.iter_mut() {
@@ -363,7 +370,7 @@ mod tests {
                 }
             }
 
-            println!("{}/{}/{}", failed_inserts, failed_contains, false_positives);
+            assert!(false_positives <= 1);
         }
     }
 }
