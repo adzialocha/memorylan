@@ -80,12 +80,11 @@ impl<'a> BitUnpacker<'a> {
             .saturating_sub(self.bit_position as u32)
     }
 
-    /// Read bits MSB-first and return them as a u32. If there aren't enough bits remaining, returns
-    /// None.
+    /// Read 1 to 32 bits MSB-first and return them as u32. Returns None if there not enough bits
+    /// remaining.
     pub fn read_bits(&mut self, mut bits: u32) -> Option<u32> {
-        // Nothing left anymore, we are done.
-        if bits == 0 {
-            return Some(0);
+        if !(1..=32).contains(&bits) {
+            panic!("can only read 1-32 bits");
         }
 
         // Trying to read more bits than available.
@@ -93,7 +92,19 @@ impl<'a> BitUnpacker<'a> {
             return None;
         }
 
+        // We always read per byte, up to 4 of them aka 32 bits. We use the bit_position cursor to
+        // track how far we've read the current byte (tracked by byte_index).
+        //
+        //        byte_index
+        //             v
+        // 0          -1---------  2           3
+        // 1010 1010 | 1001 0010 | 1100 0101 | 1001 1110
+        //                  ^
+        //               bit_position
+        //
+        // The final value is returned as an u32.
         let mut value: u32 = 0;
+
         while bits > 0 {
             // How many bits are available in the current byte?
             let available = 8u32 - self.bit_position as u32;
@@ -101,6 +112,7 @@ impl<'a> BitUnpacker<'a> {
 
             // Read next chunk.
             let byte = self.data[self.byte_index];
+
             let shift_in_byte = available - take;
             let mask = if take == 8 {
                 0xFFu8
@@ -112,13 +124,12 @@ impl<'a> BitUnpacker<'a> {
             // Append chunk to value (MSB-first).
             value = (value << take) | chunk;
 
-            // Consume bits and move cursor.
+            // Consume bits and move cursors.
             self.bit_position += take as u8;
             if self.bit_position == 8 {
                 self.byte_index += 1;
                 self.bit_position = 0;
             }
-
             bits -= take;
         }
 
@@ -188,8 +199,7 @@ impl Bitfield {
         Self(packer.finalize())
     }
 
-    /// Parse exactly `num_buckets` buckets from this bitfield. If the stream ends early, remaining
-    /// buckets (to reach num_buckets) are returned empty.
+    /// Parse expected number of buckets from this bitfield and return error otherwise.
     pub(crate) fn to_buckets(
         &self,
         num_buckets: usize,
@@ -201,34 +211,30 @@ impl Bitfield {
         let mut size = 0;
 
         for _ in 0..num_buckets {
+            let mut bucket = Bucket::new(bucket_size);
+
             // Read length prefix for bucket.
             let len = match unpacker.read_bits(BUCKET_PREFIX_LEN) {
                 Some(prefix) => prefix as usize,
-                None => {
-                    return Err(BitfieldError::from_str(
-                        "stream ended unexpectedly when reading bucket len prefix",
-                    ));
-                }
+                None => return Err(BitfieldError::LenPrefixMissing),
             };
 
-            let mut bucket = Bucket::new(bucket_size);
+            if len > bucket_size {
+                return Err(BitfieldError::ExceededBucketSize);
+            }
 
-            // Read fingerprints.
+            // Read fingerprints for bucket.
             for _ in 0..len {
                 match unpacker.read_bits(fp_bits) {
                     Some(fp) => {
-                        size += 1;
-
-                        // If bucket has capacity: insert, otherwise ignore (but keep consuming).
-                        if bucket.len() < bucket_size {
-                            bucket.insert(fp);
+                        if bucket.len() >= len {
+                            return Err(BitfieldError::ExceededLenPrefix);
                         }
+
+                        size += 1;
+                        bucket.insert(fp);
                     }
-                    None => {
-                        return Err(BitfieldError::from_str(
-                            "not enough bits left to read a fingerprint",
-                        ));
-                    }
+                    None => return Err(BitfieldError::FingerprintMissing),
                 }
             }
 
@@ -245,19 +251,34 @@ impl Bitfield {
 }
 
 #[derive(Debug)]
-pub struct BitfieldError(String);
+pub enum BitfieldError {
+    /// Not enough bits left in data to read expected bucket len prefix.
+    LenPrefixMissing,
+
+    /// Not enough bits left to read expected fingerprint.
+    FingerprintMissing,
+
+    /// Number of fingerprints exceeded what was written in bucket len prefix.
+    ExceededLenPrefix,
+
+    /// Bucket len prefix is larger than expected bucket size.
+    ExceededBucketSize,
+}
 
 impl std::fmt::Display for BitfieldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        let description = match self {
+            Self::LenPrefixMissing => "not enough bits left to read expected bucket len prefix",
+            Self::FingerprintMissing => "not enough bits left to read expected fingerprint",
+            Self::ExceededLenPrefix => "exceeded prefix len when reading fingerprints",
+            Self::ExceededBucketSize => "len prefix exceeded bucket size",
+        };
+
+        write!(f, "{}", description)
     }
 }
 
-impl BitfieldError {
-    fn from_str(error_str: &str) -> Self {
-        Self(error_str.to_owned())
-    }
-}
+impl std::error::Error for BitfieldError {}
 
 #[cfg(test)]
 mod tests {
@@ -267,7 +288,7 @@ mod tests {
     use crate::cuckoo::utils::fingerprint;
     use crate::hash::hash_digest;
 
-    use super::{BitPacker, BitUnpacker, Bitfield};
+    use super::{BitPacker, BitUnpacker, Bitfield, BitfieldError};
 
     #[test]
     fn pack_values() {
@@ -389,22 +410,43 @@ mod tests {
     fn unpack_not_enough_buckets() {
         // We can store 2 bucket prefixes in one byte (2 x 4 bits) and only have one byte (empty
         // lenghts), but we expect 3 buckets here:
-        assert!(Bitfield(vec![0]).to_buckets(3, 4, 8).is_err());
+        std::assert_matches!(
+            Bitfield(vec![0b0000_0000u8]).to_buckets(3, 4, 8),
+            Err(BitfieldError::LenPrefixMissing)
+        );
     }
 
     #[test]
     fn unpack_not_enough_fingerprints() {
-        assert!(
-            Bitfield(vec![0b0110_1100, 0b0011_1010])
-                //              ^^^^ indicate len of 6, but only 3 fingerprints are given.
-                .to_buckets(1, 4, 4)
-                .is_err()
+        std::assert_matches!(
+            Bitfield(vec![0b0110_1001u8, 0b0011_1010u8])
+                //          ^^^^ indicate len of 6, but only 3 fingerprints are given.
+                .to_buckets(1, 6, 4),
+            Err(BitfieldError::FingerprintMissing)
+        );
+    }
+
+    #[test]
+    fn unpack_exceeded_prefix_len() {
+        std::assert_matches!(
+            Bitfield(vec![0b0010_1100u8]).to_buckets(1, 4, 4),
+            //              ^^^^ prefix indicates 2 fingerprints but only one is given.
+            Err(BitfieldError::FingerprintMissing)
+        );
+    }
+
+    #[test]
+    fn unpack_exceeded_bucket_size() {
+        std::assert_matches!(
+            Bitfield(vec![0b1111_0000u8]).to_buckets(1, 10, 8),
+            //              ^^^^ indicates a bucket len of 15 but bucket_size is set to 10.
+            Err(BitfieldError::ExceededBucketSize)
         );
     }
 
     #[test]
     fn serde() {
-        let bitfield = Bitfield(vec![0b011_1100, 0b0011_1010]);
+        let bitfield = Bitfield(vec![0b0011_1100, 0b0011_1010]);
         let bytes = postcard::to_allocvec(&bitfield).unwrap();
         let bitfield_again = postcard::from_bytes(&bytes).unwrap();
 
