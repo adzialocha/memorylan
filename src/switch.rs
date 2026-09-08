@@ -44,8 +44,13 @@ pub struct MemorySwitchBuilder<ID, M> {
 impl<ID, M> Default for MemorySwitchBuilder<ID, M> {
     fn default() -> Self {
         Self {
+            // The cache_size should be smaller than the filter's capacity (95% max.)
             cache_size: 64,
+            // From note: "In practice we dimensioned the blacklist ("history size") to have twice
+            // the length of the content cache."
             history_size: 128,
+            // With a filter capacity of 128, bucket size of 4, fingerprint bit length 20 we get a
+            // 176 bytes bitfield size for 64 items (see cache_size) and 0.01% false-positive rate.
             filter_capacity: 128,
             _marker: PhantomData,
         }
@@ -203,6 +208,9 @@ where
     }
 
     fn ignore_request(&self) -> bool {
+        // From MemoryLAN note: "As a first approximation, a reply probability of 1/d is helpful
+        // where d is the number of neighbors. In practice, a more agressive dampening (1/(2 * d) or
+        // 1/d^2) is more efficient"
         !rand::random_bool(1f64 / std::cmp::max(1, self.neighbors.len()) as f64) // 1/d
     }
 
