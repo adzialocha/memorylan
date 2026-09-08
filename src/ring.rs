@@ -4,8 +4,11 @@ use indexmap::IndexSet;
 
 #[derive(Debug, Default, PartialEq)]
 pub enum RingSetMode {
+    /// Ignore already existing items during insertion.
     #[default]
     Regular,
+
+    /// Move existing items to the top of the ring-buffer during insertion to prioritise them.
     HotToTop,
 }
 
@@ -14,10 +17,10 @@ pub enum PushOutcome<M> {
     /// Item was inserted.
     Inserted,
 
-    /// Item already exists and was ignored.
+    /// Item already exists and was ignored (regular mode).
     Ignored,
 
-    /// Item already exists and was prioritised.
+    /// Item already exists and was prioritised ("hot to top" mode).
     Prioritised,
 
     /// Item was inserted and caused another item to be evicted.
