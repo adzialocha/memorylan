@@ -8,7 +8,7 @@ cache content. The protocol is based on the following two techniques: fast push 
 prevention, and cache assimilation with mitigation of NACK implosion (slow repair).
 
 In a nutshell, the system works by flooding new memory pages. Loops are prevented by a fixed-size
-FIFO deny-list (history) of re cently forwarded packets. In parallel, new memory pages enter at the
+FIFO deny-list (history) of recently forwarded packets. In parallel, new memory pages enter at the
 head of a fixed-size FIFO content queue (cache) and old cache entries are automatically evicted in
 that process.
 

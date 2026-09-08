@@ -40,14 +40,14 @@ impl<ID, M> Default for Outgoing<ID, M> {
 }
 
 #[derive(Debug)]
-pub struct MemoryLanBuilder<ID, M> {
+pub struct MemorySwitchBuilder<ID, M> {
     cache_size: usize,
     history_size: usize,
     filter_capacity: usize,
     _marker: PhantomData<(ID, M)>,
 }
 
-impl<ID, M> Default for MemoryLanBuilder<ID, M> {
+impl<ID, M> Default for MemorySwitchBuilder<ID, M> {
     fn default() -> Self {
         Self {
             cache_size: DEFAULT_CACHE_SIZE,
@@ -58,7 +58,7 @@ impl<ID, M> Default for MemoryLanBuilder<ID, M> {
     }
 }
 
-impl<ID, M> MemoryLanBuilder<ID, M>
+impl<ID, M> MemorySwitchBuilder<ID, M>
 where
     ID: Copy + Eq + Hash,
     M: Clone + Eq + Hash,
@@ -82,8 +82,8 @@ where
         self
     }
 
-    pub fn build(self, my_id: ID) -> MemoryLan<ID, M> {
-        MemoryLan::from_args(
+    pub fn build(self, my_id: ID) -> MemorySwitch<ID, M> {
+        MemorySwitch::from_args(
             my_id,
             self.cache_size,
             self.history_size,
@@ -93,7 +93,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct MemoryLan<ID, M> {
+pub struct MemorySwitch<ID, M> {
     my_id: ID,
     cache: RingSet<M>,
     history: RingSet<Digest>,
@@ -101,17 +101,17 @@ pub struct MemoryLan<ID, M> {
     neighbors: HashSet<ID>,
 }
 
-impl<ID, M> MemoryLan<ID, M>
+impl<ID, M> MemorySwitch<ID, M>
 where
     ID: Copy + Eq + Hash,
     M: Clone + Eq + Hash,
 {
     pub fn new(my_id: ID) -> Self {
-        MemoryLanBuilder::default().build(my_id)
+        MemorySwitchBuilder::default().build(my_id)
     }
 
-    pub fn builder() -> MemoryLanBuilder<ID, M> {
-        MemoryLanBuilder::new()
+    pub fn builder() -> MemorySwitchBuilder<ID, M> {
+        MemorySwitchBuilder::new()
     }
 
     fn from_args(
@@ -245,74 +245,74 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::MemoryLan;
+    use super::MemorySwitch;
 
     #[test]
     fn fast_push_broadcast() {
-        let mut lan_1 = MemoryLan::new("node-1");
+        let mut switch_1 = MemorySwitch::new("switch-1");
 
-        let outgoing_1 = lan_1.add("Hello, is anybody listening?");
+        let outgoing_1 = switch_1.add("Hello, is anybody listening?");
         assert_eq!(outgoing_1.updates.len(), 1);
         assert_eq!(outgoing_1.broadcast.len(), 1);
-        assert_eq!(lan_1.len(), 1);
+        assert_eq!(switch_1.len(), 1);
 
-        let mut lan_2 = MemoryLan::new("node-2");
+        let mut switch_2 = MemorySwitch::new("switch-2");
 
-        let outgoing_2 = lan_2.incoming(outgoing_1.broadcast[0].clone()).unwrap();
+        let outgoing_2 = switch_2.incoming(outgoing_1.broadcast[0].clone()).unwrap();
         assert_eq!(outgoing_2.updates.len(), 1);
         assert_eq!(outgoing_2.broadcast.len(), 1);
-        assert_eq!(lan_2.len(), 1);
+        assert_eq!(switch_2.len(), 1);
     }
 
     #[test]
     fn filter_duplicates() {
-        let mut lan = MemoryLan::new("test");
+        let mut switch = MemorySwitch::new("test");
 
-        let outgoing = lan.add("Yet again and again and again");
+        let outgoing = switch.add("Yet again and again and again");
         assert_eq!(outgoing.updates.len(), 1);
         assert_eq!(outgoing.broadcast.len(), 1);
-        assert_eq!(lan.len(), 1);
+        assert_eq!(switch.len(), 1);
 
-        let outgoing = lan.add("Yet again and again and again");
+        let outgoing = switch.add("Yet again and again and again");
         assert_eq!(outgoing.updates.len(), 0);
         assert_eq!(outgoing.broadcast.len(), 0);
-        assert_eq!(lan.len(), 1);
+        assert_eq!(switch.len(), 1);
     }
 
     #[test]
     fn slow_repair() {
-        let mut lan_1 = MemoryLan::new("node-1");
+        let mut switch_1 = MemorySwitch::new("switch-1");
 
         // 1 broadcasts first message (not received by 2).
-        let outgoing_1 = lan_1.add("tick");
+        let outgoing_1 = switch_1.add("tick");
         assert_eq!(outgoing_1.broadcast.len(), 1);
-        assert_eq!(lan_1.len(), 1);
+        assert_eq!(switch_1.len(), 1);
 
         // 1 broadcasts repair request.
-        let outgoing_1 = lan_1.slow_repair();
+        let outgoing_1 = switch_1.slow_repair();
         assert_eq!(outgoing_1.updates.len(), 0);
         assert_eq!(outgoing_1.broadcast.len(), 1);
 
-        let mut lan_2 = MemoryLan::new("node-2");
+        let mut switch_2 = MemorySwitch::new("switch-2");
 
         // 2 broadcasts two messages (not received by 1).
-        lan_2.add("trick");
-        lan_2.add("track");
+        switch_2.add("trick");
+        switch_2.add("track");
 
         // 2 receives repair request of 1.
-        let outgoing_2 = lan_2.incoming(outgoing_1.broadcast[0].clone()).unwrap();
+        let outgoing_2 = switch_2.incoming(outgoing_1.broadcast[0].clone()).unwrap();
         assert_eq!(outgoing_2.updates.len(), 0);
         assert_eq!(outgoing_2.broadcast.len(), 2);
-        assert_eq!(lan_2.len(), 2);
+        assert_eq!(switch_2.len(), 2);
 
         // 1 receives repair responses of 2.
         for message in outgoing_2.broadcast {
-            let outgoing_1 = lan_1.incoming(message).unwrap();
+            let outgoing_1 = switch_1.incoming(message).unwrap();
             assert_eq!(outgoing_1.updates.len(), 1);
             assert_eq!(outgoing_1.broadcast.len(), 1);
         }
 
         // 1 should have all messages now.
-        assert_eq!(lan_1.len(), 3);
+        assert_eq!(switch_1.len(), 3);
     }
 }
