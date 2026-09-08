@@ -2,10 +2,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use crate::cuckoo::utils::{alt_index, fingerprint_index};
-use crate::cuckoo::{
-    Bitfield, BitfieldError, Bucket, BucketIndex, DEFAULT_BUCKET_SIZE, DEFAULT_CAPACITY,
-    DEFAULT_FINGERPRINT_BITS, DEFAULT_MAX_EVICTIONS, Fingerprint,
-};
+use crate::cuckoo::{Bitfield, BitfieldError, Bucket, BucketIndex, Fingerprint};
 
 pub struct CuckooFilterBuilder<T>
 where
@@ -93,10 +90,10 @@ where
 {
     fn default() -> Self {
         Self {
-            capacity: DEFAULT_CAPACITY,
-            max_evictions: DEFAULT_MAX_EVICTIONS,
-            bucket_size: DEFAULT_BUCKET_SIZE,
-            fp_bits: DEFAULT_FINGERPRINT_BITS,
+            capacity: 128,
+            max_evictions: 32,
+            bucket_size: 4,
+            fp_bits: 20,
             _marker: PhantomData,
         }
     }
@@ -287,14 +284,12 @@ where
 mod tests {
     use rand::random;
 
-    use crate::cuckoo::DEFAULT_CAPACITY;
-
     use super::CuckooFilter;
 
     #[test]
     fn insert_and_contains_items() {
         let mut filter = CuckooFilter::default();
-        assert_eq!(filter.capacity(), DEFAULT_CAPACITY);
+        assert_eq!(filter.capacity(), 128);
 
         filter.insert(b"Pi");
         filter.insert(b"Pa");

@@ -6,12 +6,6 @@ use crate::cuckoo::{Bitfield, BitfieldError, CuckooFilter, CuckooFilterBuilder};
 use crate::hash::{Digest, hash_digest};
 use crate::ring::{PushOutcome, RingSet, RingSetMode};
 
-const DEFAULT_CACHE_SIZE: usize = 64;
-
-const DEFAULT_HISTORY_SIZE: usize = 128;
-
-const DEFAULT_FILTER_CAPACITY: usize = 128;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message<ID, M> {
     MemoryPage(M),
@@ -50,9 +44,9 @@ pub struct MemorySwitchBuilder<ID, M> {
 impl<ID, M> Default for MemorySwitchBuilder<ID, M> {
     fn default() -> Self {
         Self {
-            cache_size: DEFAULT_CACHE_SIZE,
-            history_size: DEFAULT_HISTORY_SIZE,
-            filter_capacity: DEFAULT_FILTER_CAPACITY,
+            cache_size: 64,
+            history_size: 128,
+            filter_capacity: 128,
             _marker: PhantomData,
         }
     }

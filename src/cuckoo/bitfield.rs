@@ -351,12 +351,12 @@ mod tests {
         let fp_3 = 0x3; // b0011
         let fp_4 = 0x4; // b0100
 
-        let mut bucket_1 = Bucket::default();
+        let mut bucket_1 = Bucket::new(4);
         bucket_1.insert(fp_1);
         bucket_1.insert(fp_2);
         bucket_1.insert(fp_3);
 
-        let mut bucket_2 = Bucket::default();
+        let mut bucket_2 = Bucket::new(4);
         bucket_2.insert(fp_4);
 
         let bitfield = Bitfield::from_buckets(&[bucket_1, bucket_2], fp_bits);

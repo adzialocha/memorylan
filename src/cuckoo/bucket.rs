@@ -1,15 +1,9 @@
-use crate::cuckoo::{DEFAULT_BUCKET_SIZE, Fingerprint};
+use crate::cuckoo::Fingerprint;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bucket {
     size: usize,
     fingerprints: Vec<Fingerprint>,
-}
-
-impl Default for Bucket {
-    fn default() -> Self {
-        Self::new(DEFAULT_BUCKET_SIZE)
-    }
 }
 
 impl Bucket {
@@ -83,7 +77,7 @@ mod tests {
 
     #[test]
     fn insert_with_capacity() {
-        let mut bucket = Bucket::default();
+        let mut bucket = Bucket::new(4);
 
         // Insert items and check length.
         assert!(bucket.insert(8));
@@ -104,7 +98,7 @@ mod tests {
 
     #[test]
     fn remove_items() {
-        let mut bucket = Bucket::default();
+        let mut bucket = Bucket::new(4);
 
         bucket.insert(1);
         assert!(bucket.contains(1));
@@ -114,7 +108,7 @@ mod tests {
 
     #[test]
     fn fifo_order_when_force_insert() {
-        let mut bucket = Bucket::default();
+        let mut bucket = Bucket::new(4);
 
         bucket.insert(2);
         bucket.insert(3);
