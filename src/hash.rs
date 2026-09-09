@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub type Digest = u64;

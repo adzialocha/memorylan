@@ -1,6 +1,6 @@
 # memorylan
 
-MemoryLAN is "a Local Area Content Replication Mesh" by Christian Tschudin, University of Basel.
+MemoryLAN is a "Local Area Content Replication Mesh" by Christian Tschudin, University of Basel.
 This is a Rust implementation of MemoryLAN using a Cuckoo Filter.
 
 A MemoryLAN consists of interconnected memory switches that aim at maintaining LAN-wide coherent
@@ -17,3 +17,14 @@ detect cache discrepancies. Neighbors send curtesy copies of missing content, mo
 node-density in order to prevent a NACK implosion. The reception of a memory page that is already
 present in the cache leads to moving that page to the front of the queue i.e., to "keep this content
 hot" and to let the distributed cache converge towards a coherent subset of shared content.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0] or [MIT license] at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
+p2panda by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
+additional terms or conditions.
+
+[Apache License, Version 2.0]: LICENSES/Apache-2.0.txt
+[MIT license]: LICENSES/MIT.txt

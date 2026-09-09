@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::marker::PhantomData;
